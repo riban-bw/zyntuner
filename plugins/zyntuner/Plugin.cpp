@@ -1,6 +1,6 @@
 /*
  * zyntuner - DSP
- * Low CPU tuner with soft mute and microtonal scales
+ * Low CPU tuner with soft mute and microtonal scales, and spectrum analyser
  *
  * Copyright (C) 2026 riban
  * License: GPL-3.0-or-later
@@ -9,6 +9,7 @@
 #include "DistrhoPlugin.hpp"
 #include "ParamDefs.hpp"
 #include "PitchDetector.hpp"
+#include "SpectrumAnalyser.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -32,11 +33,11 @@ protected:
     // Information
 
     const char* getLabel() const override { return "zyntuner"; }
-    const char* getDescription() const override { return "Low CPU tuner with soft mute and microtonal scales"; }
+    const char* getDescription() const override { return "Low CPU tuner with soft mute and microtonal scales, and spectrum analyser"; }
     const char* getMaker() const override { return "riban"; }
     const char* getHomePage() const override { return "https://zynthian.org"; }
     const char* getLicense() const override { return "GPL-3.0-or-later"; }
-    uint32_t getVersion() const override { return d_version(0, 3, 0); }
+    uint32_t getVersion() const override { return d_version(0, 4, 0); }
 
     // ----------------------------------------------------------------------------------------------------------------
     // Ports, parameters and groups (from ParamDefs.hpp)
@@ -96,34 +97,59 @@ protected:
     void sampleRateChanged(const double sampleRate) override
     {
         fDetector.setSampleRate(sampleRate);
-        fDetector.setThreshold(fValues[kParamThreshold]);
+        fDetector.setThreshold(kTunerThreshold);
+        fAnalyser.setSampleRate(sampleRate, kBandCount, kBandMinFreq, kBandMaxFreq, kBandFloor);
         fGainStep = static_cast<float>(1.0 / (kFadeTime * sampleRate));
     }
 
     void activate() override
     {
         fDetector.reset();
+        fAnalyser.reset();
         fLastFreq = -1.0f;
-        fGain = fValues[kParamBypass] > 0.5f ? 1.0f : 0.0f;
+        fActive = -1;
         fActivated = true;  // no fade on activation: the 1st run() applies the host's bypass state at once
         clearOutputs();
+        clearBands();
     }
 
     void run(const float** const inputs, float** const outputs, const uint32_t frames) override
     {
         const bool bypassed = fValues[kParamBypass] > 0.5f;
+        const int mode = fValues[kParamMode] > 0.5f ? kModeSpectrum : kModeTuner;
         const float* const inL = inputs[0];
         const float* const inR = inputs[1];
         float* const outL = outputs[0];
         float* const outR = outputs[1];
 
-        // Detection on the input, independent of the mute
-        if (!bypassed)
+        // Only the selected analysis runs, and none while bypassed (-1). Switching resets the one that stops.
+        const int active = bypassed ? -1 : mode;
+        if (active != fActive)
+        {
+            if (fActive == kModeTuner)
+            {
+                fDetector.reset();
+                fLastFreq = -1.0f;
+                clearOutputs();
+            }
+            else if (fActive == kModeSpectrum)
+            {
+                fAnalyser.reset();
+                clearBands();
+            }
+            fActive = active;
+        }
+        if (active == kModeTuner)
             for (uint32_t i = 0; i < frames; ++i)
                 fDetector.push(0.5f * (inL[i] + inR[i]));
+        else if (active == kModeSpectrum)
+            for (uint32_t i = 0; i < frames; ++i)
+                fAnalyser.push(0.5f * (inL[i] + inR[i]));
 
-        // Soft mute: the output fades out while the tuner is enabled and back in when it is bypassed
-        const float target = bypassed ? 1.0f : 0.0f;
+        // Soft mute: the output fades out while the tuner is enabled and back in when it is bypassed.
+        // The spectrum analyser lets the audio pass.
+        const bool pass = active != kModeTuner;
+        const float target = pass ? 1.0f : 0.0f;
         if (fActivated)
         {
             fActivated = false;
@@ -131,7 +157,7 @@ protected:
         }
         if (fGain == target)
         {
-            if (bypassed)
+            if (pass)
             {
                 if (outL != inL) std::memcpy(outL, inL, frames * sizeof(float));
                 if (outR != inR) std::memcpy(outR, inR, frames * sizeof(float));
@@ -144,7 +170,7 @@ protected:
         }
         else
         {
-            const float step = bypassed ? fGainStep : -fGainStep;
+            const float step = pass ? fGainStep : -fGainStep;
             for (uint32_t i = 0; i < frames; ++i)
             {
                 fGain = std::max(0.0f, std::min(1.0f, fGain + step));
@@ -153,32 +179,30 @@ protected:
             }
         }
 
-        if (bypassed)
+        if (active == kModeTuner)
         {
-            if (!fWasBypassed)
-            {
-                fDetector.reset();
-                fLastFreq = -1.0f;
-                clearOutputs();
-            }
-            fWasBypassed = true;
-            return;
+            fDetector.process(frames);
+            updateOutputs();
         }
-        fWasBypassed = false;
-
-        if (fValues[kParamThreshold] != fLastThreshold)
+        else if (active == kModeSpectrum)
         {
-            fLastThreshold = fValues[kParamThreshold];
-            fDetector.setThreshold(fLastThreshold);
+            fAnalyser.process(frames);
+            if (fAnalyser.takeUpdate())
+                for (uint32_t b = 0; b < kBandCount; ++b)
+                    fValues[kParamBand0 + b] = fAnalyser.level(b);
         }
-        fDetector.process(frames);
-        updateOutputs();
     }
 
 private:
     void clearOutputs()
     {
         fValues[kParamNote] = fValues[kParamCents] = fValues[kParamValid] = 0.0f;
+    }
+
+    void clearBands()
+    {
+        for (uint32_t b = 0; b < kBandCount; ++b)
+            fValues[kParamBand0 + b] = kBandFloor;
     }
 
     void updateOutputs()
@@ -238,10 +262,11 @@ private:
 
     float fValues[kParamCount];
     PitchDetector fDetector;
-    float fLastFreq = -1.0f, fLastRef = 0.0f, fLastThreshold = 1.0f;
+    SpectrumAnalyser fAnalyser;
+    float fLastFreq = -1.0f, fLastRef = 0.0f;
     int fLastScale = -1;
+    int fActive = -1;  // analysis running: kModeTuner, kModeSpectrum or -1 (bypassed)
     float fGain = 0.0f, fGainStep = 0.001f;
-    bool fWasBypassed = false;
     bool fActivated = false;
 
     DISTRHO_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ZyntunerPlugin)

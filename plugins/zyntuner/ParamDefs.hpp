@@ -13,7 +13,7 @@ START_NAMESPACE_DISTRHO
 
 enum ParamId : uint32_t {
     kParamReference = 0,
-    kParamThreshold = 1,
+    kParamMode = 1,
     kParamBypass = 2,
     kParamScale = 3,
     kParamNote = 4,  // output
@@ -21,8 +21,25 @@ enum ParamId : uint32_t {
     kParamValid = 6,  // output
     kParamDegree = 7,  // output
     kParamOctave = 8,  // output
-    kParamCount
+    kParamBand0 = 9,  // outputs: kBandCount spectrum bands, band_00 .. band_31
+    kParamCount = kParamBand0 + 32
 };
+
+// Spectrum analyser bands: kBandCount log spaced bands from kBandMinFreq to kBandMaxFreq
+static constexpr uint32_t kBandCount = kParamCount - kParamBand0;
+static constexpr float kBandMinFreq = 20.0f, kBandMaxFreq = 20000.0f;
+static constexpr float kBandFloor = -80.0f;  // dB, also the value of the bands while not analysing
+
+// Fixed level below which the tuner ignores the input (was the "threshold" control until 0.3)
+static constexpr float kTunerThreshold = -60.0f;  // dB
+
+enum Mode : uint32_t {
+    kModeTuner = 0,
+    kModeSpectrum = 1,
+    kModeCount
+};
+
+static const char* const kModeLabels[kModeCount] = { "Tuner", "Spectrum" };
 
 enum GroupId : uint32_t {
     kGroupTuner = 0,
@@ -53,7 +70,7 @@ static const GroupDef kGroups[kGroupCount > 0 ? static_cast<uint32_t>(kGroupCoun
 
 static const ParamDef kParams[kParamCount] = {
     { "reference", "A4 reference", "Hz", 415.0f, 466.0f, 440.0f, kParameterIsAutomatable, 0, nullptr, 0, kParameterDesignationNull },
-    { "threshold", "Threshold", "dB", -80.0f, -20.0f, -60.0f, kParameterIsAutomatable, 0, nullptr, 0, kParameterDesignationNull },
+    { "mode", "Mode", "", 0.0f, kModeCount - 1.0f, 0.0f, kParameterIsAutomatable | kParameterIsInteger, 0, kModeLabels, kModeCount, kParameterDesignationNull },
     { "bypass", "Bypass", "", 0.0f, 1.0f, 1.0f, kParameterIsAutomatable | kParameterIsBoolean, 0, nullptr, 0, kParameterDesignationBypass },
     { "scale", "Scale", "", 0.0f, kScaleCount - 1.0f, 0.0f, kParameterIsAutomatable | kParameterIsInteger, 0, kScaleLabels, kScaleCount, kParameterDesignationNull },
     { "note", "MIDI note", "", 0.0f, 127.0f, 0.0f, kParameterIsAutomatable | kParameterIsInteger | kParameterIsOutput, -1, nullptr, 0, kParameterDesignationNull },
@@ -61,6 +78,41 @@ static const ParamDef kParams[kParamCount] = {
     { "valid", "Pitch valid", "", 0.0f, 1.0f, 0.0f, kParameterIsAutomatable | kParameterIsBoolean | kParameterIsOutput, -1, nullptr, 0, kParameterDesignationNull },
     { "degree", "Scale degree", "", 0.0f, 63.0f, 0.0f, kParameterIsAutomatable | kParameterIsInteger | kParameterIsOutput, -1, nullptr, 0, kParameterDesignationNull },
     { "octave", "Octave", "", -1.0f, 10.0f, 4.0f, kParameterIsAutomatable | kParameterIsInteger | kParameterIsOutput, -1, nullptr, 0, kParameterDesignationNull },
+#define ZYNTUNER_BAND(symbol, name) \
+    { symbol, name, "dB", kBandFloor, 0.0f, kBandFloor, kParameterIsAutomatable | kParameterIsOutput, -1, nullptr, 0, kParameterDesignationNull }
+    ZYNTUNER_BAND("band_00", "22 Hz"),
+    ZYNTUNER_BAND("band_01", "28 Hz"),
+    ZYNTUNER_BAND("band_02", "34 Hz"),
+    ZYNTUNER_BAND("band_03", "43 Hz"),
+    ZYNTUNER_BAND("band_04", "53 Hz"),
+    ZYNTUNER_BAND("band_05", "66 Hz"),
+    ZYNTUNER_BAND("band_06", "81 Hz"),
+    ZYNTUNER_BAND("band_07", "101 Hz"),
+    ZYNTUNER_BAND("band_08", "125 Hz"),
+    ZYNTUNER_BAND("band_09", "155 Hz"),
+    ZYNTUNER_BAND("band_10", "193 Hz"),
+    ZYNTUNER_BAND("band_11", "239 Hz"),
+    ZYNTUNER_BAND("band_12", "297 Hz"),
+    ZYNTUNER_BAND("band_13", "369 Hz"),
+    ZYNTUNER_BAND("band_14", "458 Hz"),
+    ZYNTUNER_BAND("band_15", "568 Hz"),
+    ZYNTUNER_BAND("band_16", "705 Hz"),
+    ZYNTUNER_BAND("band_17", "874 Hz"),
+    ZYNTUNER_BAND("band_18", "1.1 kHz"),
+    ZYNTUNER_BAND("band_19", "1.3 kHz"),
+    ZYNTUNER_BAND("band_20", "1.7 kHz"),
+    ZYNTUNER_BAND("band_21", "2.1 kHz"),
+    ZYNTUNER_BAND("band_22", "2.6 kHz"),
+    ZYNTUNER_BAND("band_23", "3.2 kHz"),
+    ZYNTUNER_BAND("band_24", "4.0 kHz"),
+    ZYNTUNER_BAND("band_25", "4.9 kHz"),
+    ZYNTUNER_BAND("band_26", "6.1 kHz"),
+    ZYNTUNER_BAND("band_27", "7.6 kHz"),
+    ZYNTUNER_BAND("band_28", "9.4 kHz"),
+    ZYNTUNER_BAND("band_29", "11.7 kHz"),
+    ZYNTUNER_BAND("band_30", "14.5 kHz"),
+    ZYNTUNER_BAND("band_31", "18.0 kHz"),
+#undef ZYNTUNER_BAND
 };
 
 // Bypass parameter: the audio is muted (soft) while the tuner is enabled and passes while bypassed

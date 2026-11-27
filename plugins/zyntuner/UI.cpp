@@ -1,9 +1,10 @@
 /*
  * zyntuner - native GUI (DPF / DGL, Cairo backend, X11UI)
  *
- * Same tuner display as the zynthian widget (zyngui/zynthian_widget_zyntuner.py): needle over +/-50 cents with
- * the in-tune zone, nearest degree name of the selected scale with its octave, cents and scale name.
- * Below it, a strip with the controls: knobs (A4 reference, threshold, scale) and the bypass switch.
+ * Same display as the zynthian widget (zyngui/zynthian_widget_zyntuner.py). Tuner mode: needle over +/-50 cents
+ * with the in-tune zone, nearest degree name of the selected scale with its octave, cents and scale name.
+ * Spectrum mode: a bar per band, -80 .. 0 dB.
+ * Below it, a strip with the controls: knobs (A4 reference, mode, scale) and the bypass switch.
  *
  * Knobs: drag up/down (Shift: fine), mouse wheel (Shift: fine), double-click or Ctrl+click: default value.
  * Switch: click.
@@ -42,7 +43,7 @@ constexpr double kInTuneCents = 3.0;
 constexpr double kCloseCents = 15.0;
 
 // Controls in the strip, left to right
-constexpr uint32_t kControls[] = { kParamReference, kParamThreshold, kParamScale, kParamBypass };
+constexpr uint32_t kControls[] = { kParamReference, kParamMode, kParamScale, kParamBypass };
 constexpr int kControlCount = sizeof(kControls) / sizeof(kControls[0]);
 
 constexpr double kStripTop = 0.62;  // fraction of the height
@@ -106,7 +107,10 @@ protected:
         cairo_t* const cr = context.handle;
         setColor(cr, kColBg);
         cairo_paint(cr);
-        drawTuner(cr);
+        if (fValues[kParamMode] > 0.5f)
+            drawSpectrum(cr);
+        else
+            drawTuner(cr);
         drawControls(cr);
     }
 
@@ -188,7 +192,7 @@ protected:
         const ParamDef& p(kParams[index]);
         if ((p.hints & kParameterIsBoolean) != 0)
             return false;
-        // Stepped: 1 step. Reference / threshold: 1 Hz / 1 dB, 0.1 with Shift
+        // Stepped: 1 step. Reference: 1 Hz, 0.1 with Shift
         const float step = ! isStepped(index) && (ev.mod & kModifierShift) != 0 ? 0.1f : 1.0f;
         float v = fValues[index] + (ev.delta.getY() > 0 ? step : -step);
         if (! isStepped(index))
@@ -299,6 +303,58 @@ private:
         std::snprintf(text, sizeof(text), "%+.1f ct", cents);
         setColor(cr, kColTx);
         showText(cr, text, w * 0.86, yNote - small * 0.4);
+    }
+
+    // ----------------------------------------------------------------------------------------------------------------
+    // Spectrum display (as the zynthian widget): a bar per band, grid every 20 dB
+
+    void drawSpectrum(cairo_t* const cr)
+    {
+        const double w = getWidth(), h = getHeight() * kStripTop;
+        const double x0 = w * 0.06, x1 = w * 0.98, yTop = h * 0.06, yBottom = h * 0.84;
+        const bool bypassed = fValues[kParamBypass] > 0.5f;
+        const double alpha = bypassed ? 0.35 : 1.0;
+        const double fontSize = std::fmax(8.0, h * 0.075);
+
+        cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
+        cairo_set_font_size(cr, fontSize);
+        cairo_set_line_width(cr, 1.0);
+        for (int db = 0; db >= static_cast<int>(kBandFloor); db -= 20)
+        {
+            const double y = std::round(yTop + (yBottom - yTop) * db / kBandFloor) + 0.5;
+            setColor(cr, kColPanel, alpha);
+            cairo_move_to(cr, x0, y);
+            cairo_line_to(cr, x1, y);
+            cairo_stroke(cr);
+            char text[16];
+            std::snprintf(text, sizeof(text), "%d", db);
+            setColor(cr, kColTxOff, alpha);
+            showText(cr, text, x0 - 4, y + fontSize * 0.35, 1.0);
+        }
+
+        // Bars and frequency labels at 100 Hz, 1 kHz and 10 kHz
+        const double bw = (x1 - x0) / kBandCount;
+        const double logSpan = std::log(kBandMaxFreq / kBandMinFreq);
+        static const struct { float freq; const char* text; } kLabels[] = { { 100, "100" }, { 1000, "1k" }, { 10000, "10k" } };
+        for (const auto& l : kLabels)
+            showText(cr, l.text, x0 + (x1 - x0) * std::log(l.freq / kBandMinFreq) / logSpan, h * 0.97);
+        setColor(cr, bypassed ? kColTxOff : kColHl, alpha);
+        for (uint32_t b = 0; b < kBandCount; ++b)
+        {
+            const double norm = std::fmin(1.0, std::fmax(0.0, 1.0 - fValues[kParamBand0 + b] / kBandFloor));
+            if (norm <= 0.0)
+                continue;
+            const double y = yBottom - norm * (yBottom - yTop);
+            cairo_rectangle(cr, x0 + b * bw + 1, y, bw - 2, yBottom - y);
+        }
+        cairo_fill(cr);
+
+        if (bypassed)
+        {
+            cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+            setColor(cr, kColTxOff);
+            showTextFit(cr, "BYPASSED", (x0 + x1) / 2, h * 0.5, h * 0.2, w * 0.4);
+        }
     }
 
     // ----------------------------------------------------------------------------------------------------------------

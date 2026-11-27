@@ -19,7 +19,8 @@ static int fails = 0;
 static void check(bool ok, const char* what) { if (!ok) ++fails; printf("%s %s\n", ok ? "ok  " : "FAIL", what); }
 struct Host {
     const LV2_Descriptor* d; LV2_Handle h; double sr; int bs;
-    float ref = 440, thr = -60, en = 1, scale = 0, note = 0, cents = 0, valid = 0, degree = 0, octave = 0;
+    float ref = 440, mode = 0, en = 1, scale = 0, note = 0, cents = 0, valid = 0, degree = 0, octave = 0;
+    float bands[32] = {};
     std::vector<float> l, r, ol, orr; double worst = 0, total = 0;
     Host(const LV2_Descriptor* d, double sr, int bs) : d(d), sr(sr), bs(bs), l(bs), r(bs), ol(bs), orr(bs) {
         static LV2_URID_Map m{ nullptr, mapUri };
@@ -34,12 +35,15 @@ struct Host {
         const LV2_Feature* f[] = { &fm, &fo, nullptr };
         h = d->instantiate(d, sr, "", f);
         if (!h) { puts("instantiate failed"); exit(2); }
-        void* p[] = { l.data(), r.data(), ol.data(), orr.data(), &ref, &thr, &en, &scale, &note, &cents, &valid, &degree, &octave };
+        void* p[] = { l.data(), r.data(), ol.data(), orr.data(), &ref, &mode, &en, &scale, &note, &cents, &valid, &degree, &octave };
         for (int i = 0; i < 13; ++i) d->connect_port(h, i, p[i]);
+        for (int i = 0; i < 32; ++i) d->connect_port(h, 13 + i, &bands[i]);
         d->activate(h);
     }
     ~Host() { d->deactivate(h); d->cleanup(h); }
     long t0 = 0; bool same = true; float maxOut = 0, maxStep = 0, lastOut = 0;
+    int loudest() const { int m = 0; for (int i = 1; i < 32; ++i) if (bands[i] > bands[m]) m = i; return m; }
+    float maxBand() const { return bands[loudest()]; }
     template<class F> void run(double secs, F gen) {
         same = true; maxOut = 0; maxStep = 0;
         for (long n = 0; n < secs * sr; n += bs, t0 += bs) {
@@ -109,7 +113,38 @@ int main(int, char** a) {
       } }
     { Host h(d, 48000, 256); int v = 0; for (int i = 0; i < 50; ++i) { h.run(.1, [](double) { return .2f * noise(); }); v += h.valid > .5; }
       snprintf(b, 200, "white noise: valid %d of 50", v); check(v < 5, b); }
+    // Spectrum: band b spans 20 * 1000^(b/32) .. 20 * 1000^((b+1)/32) Hz
+    auto bandCentre = [](int b) { return 20 * pow(1000., (b + .5) / 32); };
+    for (double sr : { 44100., 48000., 96000. }) for (int bs : { 64, 1024 }) {
+        int wrong = 0; double maxErr = 0;
+        for (int b : { 0, 3, 8, 16, 24, 31 }) {
+            Host h(d, sr, bs); h.mode = 1; double f = bandCentre(b);
+            h.run(.5, [&](double t) { return float(.5 * sin(2 * M_PI * f * t)); });
+            // Full scale sine = 0 dB. Analysed: 0.5 * (L + R) = 0.35 * 0.5 -> -15.14 dB. Bands below ~100 Hz have
+            // only a bin or two: up to ~3 dB low between bins
+            if (h.loudest() != b) ++wrong;
+            else maxErr = std::max(maxErr, fabs(h.bands[b] + 15.14) - (b < 8 ? 2.0 : 0.0));
+            if (!h.same) check(false, "spectrum: audio passes unchanged");
+        }
+        snprintf(b, 200, "spectrum %g Hz / %d: wrong band %d of 6, max level error %.2f dB", sr, bs, wrong, maxErr);
+        check(!wrong && maxErr < 1.0, b);
+    }
+    { Host h(d, 48000, 256); h.mode = 1; double f = 1000;
+      h.run(.5, [&](double t) { return float(.5 * sin(2 * M_PI * f * t)); });
+      int far = 0; for (int i = 0; i < 32; ++i) if (abs(i - h.loudest()) > 2 && h.bands[i] > -60) ++far;
+      snprintf(b, 200, "spectrum 1 kHz sine: %d bands more than 2 away above -60 dB", far); check(!far, b);
+      check(h.valid < .5, "spectrum mode: tuner not running");
+      h.run(1, [](double) { return 0.f; }); check(h.maxBand() < -50 && h.maxBand() > -75, "spectrum: silence, bands fall at 40 dB/s");
+      h.run(1, [](double) { return 0.f; }); check(h.maxBand() <= -79.9f, "spectrum: silence falls to the floor");
+      h.run(.5, [&](double t) { return float(.5 * sin(2 * M_PI * f * t)); });
+      h.en = 0; h.run(.1, [&](double t) { return float(.5 * sin(2 * M_PI * f * t)); });
+      check(h.maxBand() <= -79.9f && h.same, "spectrum bypassed: bands at the floor, audio passes");
+      h.en = 1; h.mode = 0; h.run(.1, sine); h.run(1, sine); check(h.maxBand() <= -79.9f && h.valid > .5 && h.maxOut == 0, "tuner mode: bands at the floor, muted");
+      h.mode = 1; h.run(.1, sine); check(h.valid < .5 && h.maxStep < .01, "tuner -> spectrum: valid cleared, fade in without click"); }
+    { Host h(d, 48000, 64); h.mode = 1; h.run(20, [](double t) { return float(.2 * sin(2 * M_PI * 1000 * t)); });
+      printf("CPU spectrum %.3f %% of realtime, worst 64-frame block %.0f us\n", h.total / 20 * 100, h.worst * 1e6); }
     { Host h(d, 48000, 64); h.run(20, sine); printf("CPU active %.3f %% of realtime, worst 64-frame block %.0f us\n", h.total / 20 * 100, h.worst * 1e6); }
     { Host h(d, 48000, 64); h.run(20, [](double) { return 0.f; }); printf("CPU silent %.3f %%\n", h.total / 20 * 100); }
+    { Host h(d, 48000, 64); h.en = 0; h.run(20, sine); printf("CPU bypassed %.3f %%\n", h.total / 20 * 100); }
     return fails != 0;
 }

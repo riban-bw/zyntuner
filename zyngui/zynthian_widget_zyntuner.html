@@ -1,20 +1,26 @@
 <h1>zyntuner</h1>
-<p>Low CPU tuner for western and microtonal scales. Like a tuner pedal, the output is muted while the tuner is on
-(with a short fade, no clicks). Bypass it to hear the audio again: it then passes through unchanged. A new tuner starts bypassed: switch Bypass off
-to tune.</p>
+<p>Low CPU tuner for western and microtonal scales, and spectrum analyser. In Tuner mode, like a tuner pedal, the
+output is muted while the tuner is on (with a short fade, no clicks). Bypass it to hear the audio again: it then
+passes through unchanged. In Spectrum mode the audio always passes. A new tuner starts bypassed: switch Bypass off
+to tune or analyse. Only the selected mode runs, and nothing runs while bypassed.</p>
 
-<h2>Widget</h2>
+<h2>Tuner</h2>
 <p>Play one note at a time. The nearest note of the selected scale is shown with its octave and its deviation in
 cents. The needle is left of centre when the note is flat and right when it is sharp. The colour is orange within
 15 cents and green when in tune (within 3 cents). The needle shows up to 50 cents: scales with wider steps can be
 further away, see the cents value. "--" means that no pitch is detected. The selected scale is shown on the left.</p>
 
+<h2>Spectrum</h2>
+<p>32 bars from 20 Hz to 20 kHz (about a third of an octave each), from -80 to 0 dB. 0 dB is a full scale sine wave.
+Bars rise at once and fall at 40 dB per second. They turn orange above -12 dB and red above -3 dB. Below about
+100 Hz each bar covers only one or two analysis points: a steady tone there can read up to 3 dB low.</p>
+
 <h2>Controls</h2>
 <ul>
   <li><b>A4 reference</b> (415 .. 466 Hz): tuning reference, normally 440 Hz</li>
-  <li><b>Threshold</b> (-80 .. -20 dB): signals below this level are ignored</li>
-  <li><b>Bypass</b>: stops the tuner and unmutes the audio</li>
-  <li><b>Scale</b>: the scale or tuning the notes are compared to</li>
+  <li><b>Mode</b>: Tuner or Spectrum</li>
+  <li><b>Bypass</b>: stops the tuner or analyser and unmutes the audio</li>
+  <li><b>Scale</b>: the scale or tuning the notes are compared to (Tuner)</li>
 </ul>
 
 <h2>Scales</h2>
@@ -41,7 +47,8 @@ Historical temperaments and just intonation are in the key of C.</p>
 </ul>
 
 <h2>Tips</h2>
-<p>The left and right inputs are mixed for the detection. Raise the threshold if noise triggers the tuner.</p>
+<p>The left and right inputs are mixed for the detection and the analysis: signals in opposite phase cancel.
+The tuner ignores signals below -60 dB.</p>
 
 <h2>User guide</h2>
 <p>More about tuning, the scales and troubleshooting in the

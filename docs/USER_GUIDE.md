@@ -2,11 +2,13 @@
 
 zyntuner is a tuner for zynthian (and other LV2 hosts). It shows the note you play and how far it is from being in tune. It works with
 standard western tuning and with 17 other scales and tunings, from historical temperaments to microtonal and
-non-western scales. Like a tuner pedal, it mutes the sound while you tune.
+non-western scales. Like a tuner pedal, it mutes the sound while you tune. It is also a spectrum analyser
+(Mode control), showing the level of 32 frequency bands while the sound passes through.
 
 - [Installing](#installing)
 - [Adding the tuner to a chain](#adding-the-tuner-to-a-chain)
 - [Tuning](#tuning)
+- [Spectrum analyser](#spectrum-analyser)
 - [Controls](#controls)
 - [Scales and tunings](#scales-and-tunings)
 - [Troubleshooting](#troubleshooting)
@@ -58,10 +60,22 @@ Select the tuner to show its page. The widget in the lower half of the screen sh
 - **The cents value** (right): the exact deviation. It can be beyond ±50 cents in scales with wide steps (see below):
   the needle then stays at the edge.
 - **The scale** (left): the selected scale.
-- **"--"**: no pitch detected (silence, noise, chord, or a signal below the threshold).
+- **"--"**: no pitch detected (silence, noise, chord, or a signal below -60 dB).
 
 Play **one note at a time** and let it ring. A plucked string reads best a moment after the attack. Tune up to the
 note from below: the reading settles as you approach.
+
+## Spectrum analyser
+
+Set **Mode** to **Spectrum** and switch Bypass off. The sound passes through unchanged, and the widget shows the level
+of 32 bands from 20 Hz to 20 kHz (about a third of an octave each):
+
+- **Scale**: -80 dB (bottom) to 0 dB (top), a line every 20 dB. 0 dB is a full scale sine wave. Frequency marks at
+  100 Hz, 1 kHz and 10 kHz.
+- **Bars** rise at once and fall at 40 dB per second. Green, orange above -12 dB, red above -3 dB.
+- Below about 100 Hz each bar covers only one or two analysis points: a steady tone there can read up to 3 dB low.
+
+Only the selected mode runs: in Spectrum mode the tuner is stopped, and nothing is analysed while bypassed.
 
 ## Controls
 
@@ -70,9 +84,11 @@ zynthian shows the four controls on one page, one per knob:
 | Control | Range | Default | What it does |
 |---|---|---|---|
 | **A4 reference** | 415 .. 466 Hz | 440 Hz | Frequency of A4, the pitch standard. Common values: 440 (modern standard), 442 / 443 (some orchestras), 432, 415 (baroque pitch, a semitone below 440), 466 (a semitone above 440) |
-| **Threshold** | -80 .. -20 dB | -60 dB | Signals quieter than this are ignored. Raise it if noise or hum makes the tuner show notes when you aren't playing |
-| **Bypass** | off / on | on | On: the tuner stops and the sound passes through unchanged. Off: the tuner works and the sound is muted |
-| **Scale** | 18 scales | 12-TET | The scale or tuning the notes are compared to. See below |
+| **Mode** | Tuner / Spectrum | Tuner | Tuner: shows the note, mutes the sound. Spectrum: shows the spectrum, the sound passes |
+| **Bypass** | off / on | on | On: the tuner or analyser stops and the sound passes through unchanged. Off: it works (and in Tuner mode the sound is muted) |
+| **Scale** | 18 scales | 12-TET | The scale or tuning the notes are compared to (Tuner mode). See below |
+
+The tuner ignores signals below -60 dB (there was a Threshold control for this before version 0.4).
 
 ### About the reference
 
@@ -153,9 +169,10 @@ are within 50 cents of the note. Watch the cents value to bring the note closer.
 
 | Problem | What to try |
 |---|---|
-| No sound | Normal while the tuner is on: bypass it to play |
-| Always "--" | Check that the chain gets audio (the mixer's level meter). Lower the threshold for quiet signals. Play a single note, not a chord |
-| Notes appear when not playing | Raise the threshold above the noise and hum level |
+| No sound | Normal while the tuner is on: bypass it to play, or use Spectrum mode |
+| Always "--" | Check that the chain gets audio (the mixer's level meter) and is above -60 dB. Play a single note, not a chord |
+| Notes appear when not playing | Noise or hum above -60 dB: reduce it at the source (gain, cables, noise gate before the tuner) |
+| No bars in Spectrum mode | Switch Bypass off. Check that the chain gets audio |
 | Note jumps between two names | The note is about half way between two notes of the scale: you are far out of tune, tune towards the needle's side. Scales with many notes (53-TET, Partch 43) do this more often |
 | Wrong octave on a bass | Play the open string again and let it ring: the reading settles after the attack. The lowest detected note is about 28 Hz (below a 5-string bass low B) |
 | High notes not detected | The highest detected note is about 1350 Hz (E6, the top of a guitar neck) |
@@ -166,12 +183,15 @@ are within 50 cents of the note. Watch the cents value to bring the note closer.
 - **Range**: 28 Hz to 1350 Hz. Accuracy better than 0.5 cent on synthetic plucked strings (tests).
 - **Audio**: stereo in and out, no latency. The left and right inputs are mixed for the detection. While enabled the
   output is muted; while bypassed it is an exact copy of the input. Fades: 10 ms.
-- **CPU**: very low: about 0.15 % of one core on a zynthian V5 while detecting.
+- **CPU**: very low, on a zynthian V5: about 0.2 % of one core while tuning, 0.3 % in Spectrum mode, 0.06 % bypassed.
+- **Spectrum**: 4096 point FFT (8192 at 88.2 kHz and above) with a Hann window, a new analysis every half FFT
+  (~43 ms), spread over the audio blocks. Bands: the bins inside each band are summed (power).
 - **Plugin URI**: `urn:riban:tuner` (LV2).
 - **Output ports** (for other hosts and widgets): `note` (nearest 12-TET MIDI note of the target note), `cents`,
-  `valid` (1 = pitch detected), `degree` (index of the note in the scale, 0 = root) and `octave`.
-- **Native GUI**: the same tuner display as the zynthian widget (needle, note, octave, cents, scale) above knobs for
-  the reference, threshold and scale and a bypass switch. Knobs: drag up / down or use the mouse wheel (Shift: fine),
+  `valid` (1 = pitch detected), `degree` (index of the note in the scale, 0 = root) and `octave`. Spectrum:
+  `band_00` .. `band_31` in dB (-80 .. 0), -80 when not analysing.
+- **Native GUI**: the same display as the zynthian widget (tuner or spectrum) above knobs for the reference, mode
+  and scale and a bypass switch. Knobs: drag up / down or use the mouse wheel (Shift: fine),
   double-click or Ctrl+click for the default value. Shown on zynthian's VNC display and in desktop hosts.
 - The scale tables are in [`zyngui/zyntuner_scales.py`](../zyngui/zyntuner_scales.py), with the pitch of each note
   in cents.

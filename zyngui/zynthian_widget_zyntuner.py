@@ -11,12 +11,14 @@
 #   The controls of the page being shown: self.zyngui_control.zcontrollers
 #
 # Note names per scale: zyntuner_scales.py, next to this file (also the DSP's scale table)
+# Mode (control "mode"): tuner display, or spectrum analyser display (bars of the band_00 .. band_31 monitors)
 #
 # Copyright (C) 2026 riban
 # License: GPL-3.0-or-later
 # ******************************************************************************
 
 import importlib.util
+import math
 import os
 import tkinter
 
@@ -39,6 +41,17 @@ SCALE_NAMES = [[name for _, name in s[3]] for s in _SCALES]
 IN_TUNE_CENTS = 3.0
 CLOSE_CENTS = 15.0
 
+# Spectrum bands: as in plugins/zyntuner/ParamDefs.hpp
+BAND_COUNT = 32
+BAND_MIN_FREQ = 20.0
+BAND_MAX_FREQ = 20000.0
+BAND_FLOOR = -80.0
+BAND_SYMBOLS = [f"band_{i:02d}" for i in range(BAND_COUNT)]
+FREQ_LABELS = ((100, "100"), (1000, "1k"), (10000, "10k"))
+WARN_DB = -12.0  # bar colour: normal / warning / error (clipping close) above these levels
+ERROR_DB = -3.0
+MODE_SPECTRUM = 1
+
 
 class zynthian_widget_zyntuner(zynthian_widget_base.zynthian_widget_base):
 
@@ -52,14 +65,29 @@ class zynthian_widget_zyntuner(zynthian_widget_base.zynthian_widget_base):
 
         # Create all the canvas items once: refresh_gui() only moves/changes them
         canvas = self.widget_canvas
-        self.target = canvas.create_rectangle(0, 0, 0, 0, width=0, fill=zynthian_gui_config.color_panel_bg)
-        self.ticks = [canvas.create_line(0, 0, 0, 0, fill=zynthian_gui_config.color_tx_off)
+        # Tuner items (tag "tuner"): the needle is shown / hidden by refresh_tuner, not by the mode
+        self.target = canvas.create_rectangle(0, 0, 0, 0, width=0, fill=zynthian_gui_config.color_panel_bg,
+                                              tags="tuner")
+        self.ticks = [canvas.create_line(0, 0, 0, 0, fill=zynthian_gui_config.color_tx_off, tags="tuner")
                       for _ in range(-50, 51, 10)]
         self.needle = canvas.create_rectangle(0, 0, 0, 0, width=0, state=tkinter.HIDDEN)
-        self.note_text = canvas.create_text(0, 0, text="--", fill=zynthian_gui_config.color_tx_off)
-        self.octave_text = canvas.create_text(0, 0, text="", anchor=tkinter.W)
-        self.cents_text = canvas.create_text(0, 0, text="", fill=zynthian_gui_config.color_panel_tx)
-        self.scale_text = canvas.create_text(0, 0, text="", fill=zynthian_gui_config.color_tx_off)
+        self.note_text = canvas.create_text(0, 0, text="--", fill=zynthian_gui_config.color_tx_off, tags="tuner")
+        self.octave_text = canvas.create_text(0, 0, text="", anchor=tkinter.W, tags="tuner")
+        self.cents_text = canvas.create_text(0, 0, text="", fill=zynthian_gui_config.color_panel_tx, tags="tuner")
+        self.scale_text = canvas.create_text(0, 0, text="", fill=zynthian_gui_config.color_tx_off, tags="tuner")
+        # Spectrum items (tag "spectrum"): grid every 20 dB with labels, frequency labels, a bar per band
+        self.db_grid = [(canvas.create_line(0, 0, 0, 0, fill=zynthian_gui_config.color_panel_bg, tags="spectrum"),
+                      canvas.create_text(0, 0, text=str(db), anchor=tkinter.E, fill=zynthian_gui_config.color_tx_off,
+                                         tags="spectrum"))
+                     for db in range(0, int(BAND_FLOOR) - 1, -20)]
+        self.freq_texts = [canvas.create_text(0, 0, text=text, anchor=tkinter.N, fill=zynthian_gui_config.color_tx_off,
+                                              tags="spectrum") for _, text in FREQ_LABELS]
+        self.bars = [canvas.create_rectangle(0, 0, 0, 0, width=0, fill=zynthian_gui_config.color_hl, tags="spectrum")
+                     for _ in range(BAND_COUNT)]
+        self.bar_y = [None] * BAND_COUNT  # Last drawn top of each bar (pixels)
+        self.bar_zone = [0] * BAND_COUNT  # Last colour zone of each bar: 0 normal, 1 warning, 2 error
+        canvas.itemconfigure("spectrum", state=tkinter.HIDDEN)
+        self.mode = None
         self.last = None  # Last drawn (scale, degree, octave, cents), (scale,) = no pitch
         self.last_scale = None
 
@@ -87,8 +115,41 @@ class zynthian_widget_zyntuner(zynthian_widget_base.zynthian_widget_base):
         canvas.itemconfigure(self.octave_text, font=small)
         canvas.coords(self.scale_text, int(self.width * 0.14), int(self.height * 0.72))
         canvas.itemconfigure(self.scale_text, font=small, width=int(self.width * 0.26))
+
+        # Spectrum geometry
+        tiny = (family, max(7, int(self.height * 0.08)))
+        self.sx0 = int(self.width * 0.1)
+        sx1 = self.width - int(self.width * 0.02)
+        self.sy_top = int(self.height * 0.1)
+        self.sy_bottom = int(self.height * 0.84)
+        for (line, text), db in zip(self.db_grid, range(0, int(BAND_FLOOR) - 1, -20)):
+            y = self.db_to_y(db)
+            canvas.coords(line, self.sx0, y, sx1, y)
+            canvas.coords(text, self.sx0 - 4, y)
+            canvas.itemconfigure(text, font=tiny)
+        span = math.log(BAND_MAX_FREQ / BAND_MIN_FREQ)
+        for item, (freq, _) in zip(self.freq_texts, FREQ_LABELS):
+            canvas.coords(item, self.sx0 + (sx1 - self.sx0) * math.log(freq / BAND_MIN_FREQ) / span,
+                          self.sy_bottom + 2)
+            canvas.itemconfigure(item, font=tiny)
+        self.bar_x = []
+        bw = (sx1 - self.sx0) / BAND_COUNT
+        gap = 1 if bw < 8 else 2
+        for i in range(BAND_COUNT):
+            self.bar_x.append((int(self.sx0 + i * bw + gap), int(self.sx0 + (i + 1) * bw - gap)))
+        self.bar_y = [None] * BAND_COUNT
         self.last = None
         self.last_scale = None  # Redraw with the new geometry
+
+    def db_to_y(self, db):
+        db = max(BAND_FLOOR, min(0.0, db))
+        return int(self.sy_top + (self.sy_bottom - self.sy_top) * db / BAND_FLOOR)
+
+    def get_mode(self):
+        try:
+            return int(self.processor.controllers_dict["mode"].value)
+        except (AttributeError, KeyError, TypeError, ValueError):
+            return 0
 
     def get_scale(self):
         try:
@@ -101,6 +162,37 @@ class zynthian_widget_zyntuner(zynthian_widget_base.zynthian_widget_base):
         # Called every ~32 ms while shown: only draw when something visible changed
         if not self.monitors or self.width <= 1:
             return
+        mode = self.get_mode()
+        if mode != self.mode:
+            self.mode = mode
+            canvas = self.widget_canvas
+            spectrum = mode == MODE_SPECTRUM
+            canvas.itemconfigure("spectrum", state=tkinter.NORMAL if spectrum else tkinter.HIDDEN)
+            canvas.itemconfigure("tuner", state=tkinter.HIDDEN if spectrum else tkinter.NORMAL)
+            canvas.itemconfigure(self.needle, state=tkinter.HIDDEN)
+            self.last = None
+            self.bar_y = [None] * BAND_COUNT
+        if mode == MODE_SPECTRUM:
+            self.refresh_spectrum()
+        else:
+            self.refresh_tuner()
+
+    def refresh_spectrum(self):
+        canvas = self.widget_canvas
+        colors = (zynthian_gui_config.color_hl, zynthian_gui_config.color_warn, zynthian_gui_config.color_error)
+        for i, symbol in enumerate(BAND_SYMBOLS):
+            db = self.monitors.get(symbol, BAND_FLOOR)
+            y = self.db_to_y(db)
+            if y != self.bar_y[i]:
+                self.bar_y[i] = y
+                x0, x1 = self.bar_x[i]
+                canvas.coords(self.bars[i], x0, y, x1, self.sy_bottom)
+            zone = 2 if db > ERROR_DB else 1 if db > WARN_DB else 0
+            if zone != self.bar_zone[i]:
+                self.bar_zone[i] = zone
+                canvas.itemconfigure(self.bars[i], fill=colors[zone])
+
+    def refresh_tuner(self):
         scale = self.get_scale()
         if self.monitors.get("valid", 0) > 0.5:
             data = (scale, int(round(self.monitors.get("degree", 0))), int(round(self.monitors.get("octave", 4))),

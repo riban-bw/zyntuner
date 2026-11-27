@@ -1,6 +1,6 @@
 # zyntuner
 
-Low CPU tuner with soft mute and microtonal scales
+Low CPU tuner with soft mute and microtonal scales, and spectrum analyser
 
 <img width="400" height="149" alt="image" src="https://github.com/user-attachments/assets/277d79b8-d8f9-4afc-a925-05d9c37a1b84" />
 
@@ -9,7 +9,7 @@ LV2 plugin built with [DPF](https://github.com/DISTRHO/DPF), with a native X11 G
 
 - URI: `urn:riban:tuner`
 - License: GPL-3.0-or-later
-- **[User guide](docs/USER_GUIDE.md)**: installing, tuning, controls, the 18 scales and tunings, troubleshooting
+- **[User guide](docs/USER_GUIDE.md)**: installing, tuning, spectrum analyser, controls, the 18 scales and tunings, troubleshooting
 
 ## Build
 
