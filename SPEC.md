@@ -18,7 +18,7 @@ Pages = port groups, 4 controls per page in zynthian. Symbols are stable API.
 | Page | Symbol | Name | Range | Default | Unit | Type | Designation / notes |
 |---|---|---|---|---|---|---|---|
 | Tuner | `reference` | A4 reference | 415 .. 466 | 440 | Hz | float |  |
-| Tuner | `mode` | Mode | 0 .. 1 | 0 (Tuner) |  | enum | Tuner / Spectrum. Since 0.4, replaces `threshold` (removed, fixed at -60 dB) |
+| Tuner | `mode` | Mode | 0 .. 2 | 0 (Tuner) |  | enum | Tuner / Spectrum / Both. Since 0.4, replaces `threshold` (removed, fixed at -60 dB) |
 | Tuner | `bypass` | Bypass | 0 .. 1 | 1 (bypassed, audio passing) |  | boolean | bypass (LV2 `lv2_enabled`, default 0 set by `port_extras.json`) |
 | Tuner | `scale` | Scale | 0 .. 17 | 0 (12-TET) |  | enum | from `zyngui/zyntuner_scales.py`, new scales appended only |
 
@@ -35,8 +35,9 @@ Pages = port groups, 4 controls per page in zynthian. Symbols are stable API.
 | `band_00` .. `band_31` | 22 Hz .. 18.0 kHz | -80 .. 0 | dB | spectrum band levels (0.4); -80 when not in Spectrum mode or bypassed |
 
 ## DSP — DONE
-- Modes (0.4): only the selected analysis runs, and none while bypassed. Switching mode or bypassing resets the
-  analysis that stops and clears its outputs.
+- Modes (0.4): only the selected analysis runs, and none while bypassed. Both: tuner while enabled (inline),
+  spectrum while bypassed (`activeMode()` in ParamDefs.hpp, shared by DSP and GUI). Switching mode or bypassing
+  resets the analysis that stops and clears its outputs.
 - Audio: soft mute in Tuner mode. While enabled the output fades out (10 ms linear) and stays silent; while bypassed,
   or in Spectrum mode, it fades in and then copies the input unchanged. No latency.
 - Scales (`zyngui/zyntuner_scales.py`, also imported by the widget; `make` generates `plugins/zyntuner/Scales.hpp`):
@@ -65,7 +66,8 @@ None.
 ## Zynthian widget — DONE
 Half height: degree name of the selected scale with its octave, cents, needle (clamped at ±50 cents) and the
 scale name. Green within 3 cents, orange within 15, red beyond (theme colours).
-Spectrum mode (0.4, same half-height widget, items switched by the `mode` control): 32 bars, grid every 20 dB with
+Spectrum mode (0.4, same half-height widget, items switched by the `mode` control; Both: by
+`processor.is_bypassed()`): 32 bars, grid every 20 dB with
 labels, frequency labels at 100 / 1k / 10k. Bars green, orange above -12 dB, red above -3 dB. Only changed bars are
 redrawn.
 

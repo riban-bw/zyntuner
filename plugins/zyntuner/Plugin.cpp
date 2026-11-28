@@ -115,15 +115,14 @@ protected:
 
     void run(const float** const inputs, float** const outputs, const uint32_t frames) override
     {
-        const bool bypassed = fValues[kParamBypass] > 0.5f;
-        const int mode = fValues[kParamMode] > 0.5f ? kModeSpectrum : kModeTuner;
         const float* const inL = inputs[0];
         const float* const inR = inputs[1];
         float* const outL = outputs[0];
         float* const outR = outputs[1];
 
-        // Only the selected analysis runs, and none while bypassed (-1). Switching resets the one that stops.
-        const int active = bypassed ? -1 : mode;
+        // Only the selected analysis runs, none while bypassed (-1), except in Both mode: tuner while enabled,
+        // spectrum while bypassed. Switching resets the one that stops.
+        const int active = activeMode(fValues[kParamMode], fValues[kParamBypass] > 0.5f);
         if (active != fActive)
         {
             if (fActive == kModeTuner)
@@ -146,7 +145,7 @@ protected:
             for (uint32_t i = 0; i < frames; ++i)
                 fAnalyser.push(0.5f * (inL[i] + inR[i]));
 
-        // Soft mute: the output fades out while the tuner is enabled and back in when it is bypassed.
+        // Soft mute: the output fades out while the tuner runs and back in when it stops.
         // The spectrum analyser lets the audio pass.
         const bool pass = active != kModeTuner;
         const float target = pass ? 1.0f : 0.0f;

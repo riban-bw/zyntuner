@@ -36,10 +36,22 @@ static constexpr float kTunerThreshold = -60.0f;  // dB
 enum Mode : uint32_t {
     kModeTuner = 0,
     kModeSpectrum = 1,
+    kModeBoth = 2,  // tuner while enabled, spectrum (audio passing) while bypassed
     kModeCount
 };
 
-static const char* const kModeLabels[kModeCount] = { "Tuner", "Spectrum" };
+static const char* const kModeLabels[kModeCount] = { "Tuner", "Spectrum", "Both" };
+
+// Analysis shown / running for a mode and bypass state: kModeTuner, kModeSpectrum or -1 (none)
+static inline int activeMode(const float mode, const bool bypassed)
+{
+    const int m = static_cast<int>(mode + 0.5f);
+    if (m == kModeBoth)
+        return bypassed ? kModeSpectrum : kModeTuner;
+    if (bypassed)
+        return -1;
+    return m == kModeSpectrum ? kModeSpectrum : kModeTuner;
+}
 
 enum GroupId : uint32_t {
     kGroupTuner = 0,

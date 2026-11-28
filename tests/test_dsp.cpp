@@ -141,6 +141,14 @@ int main(int, char** a) {
       check(h.maxBand() <= -79.9f && h.same, "spectrum bypassed: bands at the floor, audio passes");
       h.en = 1; h.mode = 0; h.run(.1, sine); h.run(1, sine); check(h.maxBand() <= -79.9f && h.valid > .5 && h.maxOut == 0, "tuner mode: bands at the floor, muted");
       h.mode = 1; h.run(.1, sine); check(h.valid < .5 && h.maxStep < .01, "tuner -> spectrum: valid cleared, fade in without click"); }
+    // Both: tuner (muted) while enabled, spectrum (audio passing) while bypassed
+    { Host h(d, 48000, 256); h.mode = 2; auto tone = [](double t) { return float(.5 * sin(2 * M_PI * 110 * t)); };
+      h.run(1, tone); check(h.valid > .5 && h.note == 45 && h.maxOut == 0 && h.maxBand() <= -79.9f, "both, enabled: tuner, muted, no spectrum");
+      h.en = 0; h.run(.1, tone); check(h.valid < .5 && h.maxStep < .01, "both -> bypassed: tuner stops, fade in without click");
+      h.run(.5, tone); check(h.same && h.maxBand() > -30 && h.loudest() >= 6 && h.loudest() <= 9, "both, bypassed: spectrum, audio passes");
+      h.en = 1; h.run(.1, tone); check(h.maxBand() <= -79.9f && h.maxStep < .01, "both -> enabled: spectrum cleared, fade out without click");
+      h.run(1, tone); check(h.valid > .5 && h.maxOut == 0, "both, enabled again: tuner"); }
+    { Host h(d, 48000, 256); h.mode = 2; h.en = 0; h.run(.5, sine); check(h.same && h.maxBand() > -30, "both, bypassed from the start: spectrum, audio passes"); }
     { Host h(d, 48000, 64); h.mode = 1; h.run(20, [](double t) { return float(.2 * sin(2 * M_PI * 1000 * t)); });
       printf("CPU spectrum %.3f %% of realtime, worst 64-frame block %.0f us\n", h.total / 20 * 100, h.worst * 1e6); }
     { Host h(d, 48000, 64); h.run(20, sine); printf("CPU active %.3f %% of realtime, worst 64-frame block %.0f us\n", h.total / 20 * 100, h.worst * 1e6); }

@@ -3,7 +3,7 @@
  *
  * Same display as the zynthian widget (zyngui/zynthian_widget_zyntuner.py). Tuner mode: needle over +/-50 cents
  * with the in-tune zone, nearest degree name of the selected scale with its octave, cents and scale name.
- * Spectrum mode: a bar per band, -80 .. 0 dB.
+ * Spectrum mode: a bar per band, -80 .. 0 dB. Both mode: tuner while enabled, spectrum while bypassed.
  * Below it, a strip with the controls: knobs (A4 reference, mode, scale) and the bypass switch.
  *
  * Knobs: drag up/down (Shift: fine), mouse wheel (Shift: fine), double-click or Ctrl+click: default value.
@@ -107,7 +107,8 @@ protected:
         cairo_t* const cr = context.handle;
         setColor(cr, kColBg);
         cairo_paint(cr);
-        if (fValues[kParamMode] > 0.5f)
+        if (activeMode(fValues[kParamMode], fValues[kParamBypass] > 0.5f) == kModeSpectrum
+            || static_cast<int>(fValues[kParamMode] + 0.5f) == kModeSpectrum)
             drawSpectrum(cr);
         else
             drawTuner(cr);
@@ -312,7 +313,8 @@ private:
     {
         const double w = getWidth(), h = getHeight() * kStripTop;
         const double x0 = w * 0.06, x1 = w * 0.98, yTop = h * 0.06, yBottom = h * 0.84;
-        const bool bypassed = fValues[kParamBypass] > 0.5f;
+        // In Both mode the spectrum is shown (and runs) while bypassed
+        const bool bypassed = fValues[kParamBypass] > 0.5f && static_cast<int>(fValues[kParamMode] + 0.5f) != kModeBoth;
         const double alpha = bypassed ? 0.35 : 1.0;
         const double fontSize = std::fmax(8.0, h * 0.075);
 

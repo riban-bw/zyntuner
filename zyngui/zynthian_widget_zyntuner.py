@@ -11,7 +11,8 @@
 #   The controls of the page being shown: self.zyngui_control.zcontrollers
 #
 # Note names per scale: zyntuner_scales.py, next to this file (also the DSP's scale table)
-# Mode (control "mode"): tuner display, or spectrum analyser display (bars of the band_00 .. band_31 monitors)
+# Mode (control "mode"): tuner display, or spectrum analyser display (bars of the band_00 .. band_31 monitors).
+#   Both: tuner while enabled, spectrum while the processor is bypassed
 #
 # Copyright (C) 2026 riban
 # License: GPL-3.0-or-later
@@ -51,6 +52,7 @@ FREQ_LABELS = ((100, "100"), (1000, "1k"), (10000, "10k"))
 WARN_DB = -12.0  # bar colour: normal / warning / error (clipping close) above these levels
 ERROR_DB = -3.0
 MODE_SPECTRUM = 1
+MODE_BOTH = 2
 
 
 class zynthian_widget_zyntuner(zynthian_widget_base.zynthian_widget_base):
@@ -146,8 +148,12 @@ class zynthian_widget_zyntuner(zynthian_widget_base.zynthian_widget_base):
         return int(self.sy_top + (self.sy_bottom - self.sy_top) * db / BAND_FLOOR)
 
     def get_mode(self):
+        """Display shown: MODE_SPECTRUM or 0 (tuner). Both: spectrum while bypassed"""
         try:
-            return int(self.processor.controllers_dict["mode"].value)
+            mode = int(self.processor.controllers_dict["mode"].value)
+            if mode == MODE_BOTH:
+                return MODE_SPECTRUM if self.processor.is_bypassed() else 0
+            return mode
         except (AttributeError, KeyError, TypeError, ValueError):
             return 0
 

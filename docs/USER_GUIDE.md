@@ -77,6 +77,12 @@ of 32 bands from 20 Hz to 20 kHz (about a third of an octave each):
 
 Only the selected mode runs: in Spectrum mode the tuner is stopped, and nothing is analysed while bypassed.
 
+### Both
+
+In **Both** mode, Bypass switches between the two: inline (Bypass off) shows the tuner and mutes the sound, bypassed
+shows the spectrum while the sound passes. Handy with a footswitch learnt to Bypass: tune, then play while watching
+the spectrum.
+
 ## Controls
 
 zynthian shows the four controls on one page, one per knob:
@@ -84,7 +90,7 @@ zynthian shows the four controls on one page, one per knob:
 | Control | Range | Default | What it does |
 |---|---|---|---|
 | **A4 reference** | 415 .. 466 Hz | 440 Hz | Frequency of A4, the pitch standard. Common values: 440 (modern standard), 442 / 443 (some orchestras), 432, 415 (baroque pitch, a semitone below 440), 466 (a semitone above 440) |
-| **Mode** | Tuner / Spectrum | Tuner | Tuner: shows the note, mutes the sound. Spectrum: shows the spectrum, the sound passes |
+| **Mode** | Tuner / Spectrum / Both | Tuner | Tuner: shows the note, mutes the sound. Spectrum: shows the spectrum, the sound passes. Both: tuner while inline, spectrum while bypassed |
 | **Bypass** | off / on | on | On: the tuner or analyser stops and the sound passes through unchanged. Off: it works (and in Tuner mode the sound is muted) |
 | **Scale** | 18 scales | 12-TET | The scale or tuning the notes are compared to (Tuner mode). See below |
 
